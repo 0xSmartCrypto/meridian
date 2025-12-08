@@ -1,0 +1,41 @@
+{
+  "name": "meridian",
+  "version": "0.1.0",
+  "description": "Funding rate mean reversion trading system for Boros (Pendle's funding rate platform)",
+  "type": "module",
+  "scripts": {
+    "data:fetch": "tsx src/data/fetch.ts",
+    "data:analyze": "tsx src/data/analyze.ts",
+    "backtest": "tsx src/backtest/run.ts",
+    "backtest:spread": "tsx src/backtest/spread-harvest.ts",
+    "alerts": "tsx src/alerts/monitor.ts",
+    "alerts:watch": "tsx src/alerts/monitor.ts --continuous",
+    "alerts:start": "pm2 start ecosystem.config.cjs",
+    "alerts:stop": "pm2 stop meridian-alerts",
+    "alerts:restart": "pm2 restart meridian-alerts",
+    "alerts:logs": "pm2 logs meridian-alerts",
+    "alerts:status": "pm2 status",
+    "paper": "MODE=paper tsx src/index.ts",
+    "live": "MODE=live tsx src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.25",
+    "pm2": "^6.0.14",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "main": "index.js",
+  "keywords": [
+    "boros",
+    "pendle",
+    "funding rate",
+    "mean reversion",
+    "trading"
+  ],
+  "author": "0xSmartCrypto",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "zod": "^4.1.13"
+  }
+}

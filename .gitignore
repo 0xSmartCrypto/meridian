@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Build
+dist/
+build/
+*.js.map
+
+# Data (large files)
+data/*.csv
+data/*.json
+!data/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Claude Code local settings
+.claude/
+
+# Testing
+coverage/
+
+# Secrets
+*.pem
+*.key
+secrets/
+
+# Private docs
+CLAUDE.md
+threads/
