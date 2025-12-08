@@ -12,12 +12,14 @@ Funding rate mean reversion trading system for Boros (Pendle's funding rate plat
 | 4. Paper Trade | Not started |
 | 5. Live | Not started |
 
-## Backtest Results
+## Backtest Results (Preliminary - 90 days)
 
-| Strategy | Best Config | Annualized | Sharpe | Win Rate |
-|----------|-------------|------------|--------|----------|
-| **Mean Reversion** | HYPE 2.5σ, 7d hold | **37%** | 7.21 | 89% |
-| Spread Harvest | HYPE 2% spread, 14d | 5.4% | 4.70 | 75% |
+| Strategy | Best Config | 90-Day Return | Win Rate |
+|----------|-------------|---------------|----------|
+| **Mean Reversion** | HYPE 2.5σ, 7d hold | **+$904 (9%)** | 89% (8/9) |
+| Spread Harvest | HYPE 5% spread, 14d | +$135 (1.4%) | 75% |
+
+*Based on $10k notional. Results are preliminary - more data needed for statistical significance.*
 
 **Key insight:** Hold positions for 7-14 days. Don't exit early when signals revert.
 
@@ -163,24 +165,33 @@ src/
 | `pnpm run alerts:stop` | Stop PM2 daemon |
 | `pnpm run alerts:logs` | View PM2 logs |
 
-## Performance by Asset
+## Performance by Asset (Preliminary)
 
-From 90-day backtest with optimized per-coin thresholds, 7-day hold:
+From 90-day backtest with optimized per-coin thresholds, 7-day hold, $10k notional:
 
-| Asset | Z Threshold | Annualized | Win Rate |
-|-------|-------------|------------|----------|
-| HYPE | 2.5σ | 37%+ | 100% |
-| ETH | 1.8σ | 6% | 100% |
-| BTC | 2.2σ | 4% | 100% |
+| Asset | Z Threshold | 90-Day PnL | Trades | Win Rate |
+|-------|-------------|------------|--------|----------|
+| HYPE | 2.5σ | +$904 | 9 | 89% |
+| ETH | 1.8σ | +$149 | 8 | 100% |
+| BTC | 2.2σ | +$104 | 9 | 89% |
 
-HYPE shows strongest mean reversion behavior.
+HYPE shows strongest mean reversion behavior. *More data needed for statistical significance.*
 
 ## Risk Notes
 
+**Leverage & Liquidation:**
+- Boros positions use leverage - you CAN be liquidated
+- Funding rates can spike unexpectedly (100%+ APR moves happen)
+- A 7-day hold with adverse funding can drain margin quickly
+- Start with 1-2x leverage max until you understand the mechanics
+- Never use leverage you can't afford to lose
+
+**General:**
 - Backtest ≠ live performance
+- Only 90 days of data, 9 trades - statistically limited
 - Edge may compress as more capital enters Boros
 - Use appropriate position sizing (10-20% of allocated capital)
-- Set leverage based on signal strength (1-2x typical, 2-3x on 3σ+ signals)
+- This is NOT financial advice
 
 ## License
 
