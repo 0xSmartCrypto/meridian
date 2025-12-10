@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { loadConfig, validateConfig, getZThreshold, getMinSpread, type AlertConfig } from './config.js';
 import { sendAlert, type TradeAlert, type AlertType } from './notifiers.js';
+import { onAlert as onPaperAlert } from '../paper/hook.js';
 
 const DATA_DIR = join(process.cwd(), 'data');
 const STATE_FILE = join(DATA_DIR, 'alert-state.json');
@@ -189,6 +190,7 @@ async function checkMeanReversion(
   };
 
   await sendAlert(config, alert);
+  await onPaperAlert(alert);
   markAlertSent(state, coin, direction, 'mean_reversion');
 }
 
@@ -200,18 +202,29 @@ async function checkSpreadHarvest(
 ): Promise<void> {
   const impliedApr = await fetchBorosImplied(coin);
 
-  if (impliedApr === null) {
+  // Validate implied APR - reject if 0 or null (bad data from API)
+  if (impliedApr === null || impliedApr === 0) {
     // Fall back to calculated implied
     const calcImplied = calculateImplied(coin);
     if (calcImplied === null) {
-      console.log(`  [Spread] No implied data for ${coin}`);
+      console.log(`  [Spread] No valid implied data for ${coin} (API returned: ${impliedApr})`);
       return;
     }
   }
 
-  const implied = impliedApr ?? calculateImplied(coin) ?? currentApr;
+  // Use API value only if valid (non-zero), otherwise fall back to calculated
+  const implied = (impliedApr && impliedApr !== 0) ? impliedApr : (calculateImplied(coin) ?? currentApr);
   const spread = implied - currentApr;
   const minSpread = getMinSpread(config, coin);
+
+  // Sanity check: reject spreads that are unrealistically large (likely bad data)
+  const MAX_REALISTIC_SPREAD = 0.15; // 15% spread is extremely high, anything above is suspicious
+  if (Math.abs(spread) > MAX_REALISTIC_SPREAD) {
+    console.log(`  [Spread] ⚠️  REJECTED: Spread ${(spread * 100).toFixed(2)}% exceeds sanity threshold (±15%)`);
+    console.log(`           Implied: ${(implied * 100).toFixed(2)}%, Underlying: ${(currentApr * 100).toFixed(2)}%`);
+    console.log(`           This is likely bad data from the API.`);
+    return;
+  }
 
   console.log(`  [Spread] Implied: ${(implied * 100).toFixed(2)}%, Underlying: ${(currentApr * 100).toFixed(2)}%, Spread: ${(spread * 100).toFixed(2)}%`);
   console.log(`           Threshold: ±${(minSpread * 100).toFixed(0)}%`);
@@ -250,6 +263,7 @@ async function checkSpreadHarvest(
   };
 
   await sendAlert(config, alert);
+  await onPaperAlert(alert);
   markAlertSent(state, coin, direction, 'spread_harvest');
 }
 

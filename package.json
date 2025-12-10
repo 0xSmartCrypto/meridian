@@ -15,8 +15,14 @@
     "alerts:restart": "pm2 restart meridian-alerts",
     "alerts:logs": "pm2 logs meridian-alerts",
     "alerts:status": "pm2 status",
-    "paper": "MODE=paper tsx src/index.ts",
-    "live": "MODE=live tsx src/index.ts"
+    "paper:dashboard": "tsx src/paper/dashboard.ts",
+    "paper:status": "tsx src/paper/cli.ts status",
+    "paper:process": "tsx src/paper/cli.ts process",
+    "paper:close": "tsx src/paper/cli.ts close",
+    "paper:snapshot": "tsx src/paper/cli.ts snapshot",
+    "paper:reset": "tsx src/paper/cli.ts reset",
+    "paper:export": "tsx src/paper/cli.ts export",
+    "paper:open": "tsx src/paper/hook.ts open"
   },
   "devDependencies": {
     "@types/node": "^20.19.25",

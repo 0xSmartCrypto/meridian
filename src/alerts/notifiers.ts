@@ -131,13 +131,13 @@ Size:        10-20% of allocated capital
 
 ${direction === 'SHORT' ? `
 WHY SHORT:
-• Implied (${impliedPercent}%) >> Underlying (${currentPercent}%)
+• Implied (${impliedPercent}%) is ABOVE Underlying (${currentPercent}%)
 • You RECEIVE high fixed rate
 • You PAY lower floating rate
 • Profit = spread earned over holding period
 ` : `
 WHY LONG:
-• Implied (${impliedPercent}%) << Underlying (${currentPercent}%)
+• Implied (${impliedPercent}%) is BELOW Underlying (${currentPercent}%)
 • You PAY low fixed rate
 • You RECEIVE higher floating rate
 • Profit = spread earned over holding period
