@@ -9,7 +9,7 @@ Funding rate mean reversion trading system for Boros (Pendle's funding rate plat
 | 1. Data | Done |
 | 2. Backtest | Done |
 | 3. Alerts | Done |
-| 4. Paper Trade | Not started |
+| 4. Paper Trade | Ongoing |
 | 5. Live | Not started |
 
 ## Backtest Results (Preliminary - 90 days)
