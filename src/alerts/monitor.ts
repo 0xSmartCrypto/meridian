@@ -217,12 +217,10 @@ async function checkSpreadHarvest(
   const spread = implied - currentApr;
   const minSpread = getMinSpread(config, coin);
 
-  // Sanity check: reject spreads that are unrealistically large (likely bad data)
-  const MAX_REALISTIC_SPREAD = 0.15; // 15% spread is extremely high, anything above is suspicious
-  if (Math.abs(spread) > MAX_REALISTIC_SPREAD) {
-    console.log(`  [Spread] ⚠️  REJECTED: Spread ${(spread * 100).toFixed(2)}% exceeds sanity threshold (±15%)`);
-    console.log(`           Implied: ${(implied * 100).toFixed(2)}%, Underlying: ${(currentApr * 100).toFixed(2)}%`);
-    console.log(`           This is likely bad data from the API.`);
+  // Sanity check: only reject if implied is 0 or negative (bad data)
+  // Large spreads (like 50%+) can be real during funding spikes - don't block them
+  if (implied <= 0) {
+    console.log(`  [Spread] ⚠️  REJECTED: Invalid implied APR (${(implied * 100).toFixed(2)}%)`);
     return;
   }
 

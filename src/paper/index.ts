@@ -21,4 +21,5 @@
 export * from './types.js';
 export * from './tracker.js';
 export * from './metrics.js';
+export * from './leverage.js';
 export { onAlert } from './hook.js';

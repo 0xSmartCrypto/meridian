@@ -61,7 +61,9 @@ export async function onAlert(alert: TradeAlert): Promise<void> {
   if (result.trade) {
     console.log(`   Mode: AUTO - Trade opened`);
     console.log(`   ID: ${result.trade.id.slice(0, 8)}...`);
-    console.log(`   Size: $${result.trade.notionalSize}`);
+    console.log(`   Leverage: ${result.leverageInfo}`);
+    console.log(`   Collateral: $${(result.trade.notionalSize / result.trade.leverage).toFixed(0)}`);
+    console.log(`   Notional: $${result.trade.notionalSize.toFixed(0)}`);
     console.log(`   Exit: ${result.trade.scheduledExitTime.split('T')[0]}`);
   } else {
     console.log(`   Mode: AUTO - Trade NOT opened`);

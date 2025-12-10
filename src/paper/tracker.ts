@@ -22,6 +22,7 @@ import type {
   RiskConfig,
 } from './types.js';
 import type { TradeAlert } from '../alerts/notifiers.js';
+import { loadLeverageConfig, calculateLeverage, describeLeverage } from './leverage.js';
 
 // ============================================================================
 // FILE PATHS
@@ -232,7 +233,7 @@ export function openTrade(
   trades: PaperTrade[],
   riskConfig: RiskConfig,
   positionSize?: number
-): { trade: PaperTrade | null; reason?: string } {
+): { trade: PaperTrade | null; reason?: string; leverageInfo?: string } {
   // Log the alert first (for signal-to-trade ratio)
   logAlert(alert);
 
@@ -242,16 +243,37 @@ export function openTrade(
     return { trade: null, reason: check.reason };
   }
 
+  // Calculate leverage based on configured strategy
+  const leverageConfig = loadLeverageConfig();
+  const leverage = calculateLeverage(
+    leverageConfig,
+    alert.zScore,
+    state.currentEquity,
+    state.startingCapital
+  );
+  const leverageInfo = describeLeverage(
+    leverageConfig,
+    alert.zScore,
+    state.currentEquity,
+    state.startingCapital
+  );
+
+  // Cap leverage at risk config max
+  const finalLeverage = Math.min(leverage, riskConfig.maxLeverage);
+
   // Calculate position size
+  // With leverage, collateral = notional / leverage
   const maxSize = state.currentEquity * riskConfig.maxPositionSize;
-  const size = Math.min(positionSize ?? DEFAULT_POSITION_SIZE, maxSize);
+  const baseSize = positionSize ?? DEFAULT_POSITION_SIZE;
+  const collateral = Math.min(baseSize, maxSize);
+  const notionalSize = collateral * finalLeverage;
 
   // Calculate scheduled exit time
   const exitDate = new Date();
   exitDate.setDate(exitDate.getDate() + alert.holdDays);
 
   // Calculate fees (entry side only, exit added at close)
-  const entryFee = size * TAKER_FEE_RATE;
+  const entryFee = notionalSize * TAKER_FEE_RATE;
 
   const trade: PaperTrade = {
     id: randomUUID(),
@@ -265,8 +287,8 @@ export function openTrade(
     entryApr: alert.currentApr,
     entryImpliedApr: alert.impliedApr,
     entryZScore: alert.zScore,
-    notionalSize: size,
-    leverage: 1, // Default to 1x for paper trading
+    notionalSize,
+    leverage: finalLeverage,
 
     // Hold period
     targetHoldDays: alert.holdDays,
@@ -292,7 +314,7 @@ export function openTrade(
   saveTrades(trades);
   saveState(state);
 
-  return { trade };
+  return { trade, leverageInfo };
 }
 
 /**
