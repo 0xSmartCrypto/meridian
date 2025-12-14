@@ -95,7 +95,7 @@ export interface PaperTrade {
   exitZScore: number | null;
 
   /** Why the trade was closed */
-  exitReason: 'TIME_BASED' | 'MANUAL' | 'STOP_LOSS' | null;
+  exitReason: 'TIME_BASED' | 'MANUAL' | 'STOP_LOSS' | 'TRAILING_STOP' | null;
 
   // ─────────────────────────────────────────────────────────────────────────
   // P&L DATA
@@ -121,6 +121,25 @@ export interface PaperTrade {
 
   /** Estimated fees (entry + exit) */
   fees: number;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TRAILING STOP DATA (Trail 30% Strategy)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Peak unrealized P&L reached during the trade
+   * Used to calculate trailing stop trigger
+   */
+  peakUnrealizedPnl: number;
+
+  /** Hour at which peak P&L was reached (for analysis) */
+  peakPnlHour: number;
+
+  /** Trailing stop percentage (default: 0.30 = 30% drawdown from peak triggers exit) */
+  trailingStopPct: number;
+
+  /** Minimum hours to hold before trailing stop can trigger (avoid whipsaws) */
+  minHoldHours: number;
 }
 
 // ============================================================================
@@ -184,6 +203,16 @@ export interface RiskConfig {
 
   /** Cooldown period in days after hitting loss limit (default: 14) */
   cooldownDays: number;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TRAILING STOP SETTINGS (Trail 30% Strategy)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Trailing stop percentage - exit when P&L drops this much from peak (default: 0.30 = 30%) */
+  trailingStopPct: number;
+
+  /** Minimum hours to hold before trailing stop can trigger (default: 12) */
+  minHoldHours: number;
 }
 
 // ============================================================================

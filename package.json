@@ -22,7 +22,9 @@
     "paper:snapshot": "tsx src/paper/cli.ts snapshot",
     "paper:reset": "tsx src/paper/cli.ts reset",
     "paper:export": "tsx src/paper/cli.ts export",
-    "paper:open": "tsx src/paper/hook.ts open"
+    "paper:open": "tsx src/paper/hook.ts open",
+    "paper:monitor": "tsx src/paper/monitor.ts",
+    "paper:monitor:watch": "tsx src/paper/monitor.ts --watch"
   },
   "devDependencies": {
     "@types/node": "^20.19.25",

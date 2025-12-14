@@ -52,7 +52,7 @@ Z-Score:             ${zScore.toFixed(2)}σ
 TRADE INSTRUCTIONS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Direction:   ${direction}
-Hold Period: ${holdDays} DAYS (DO NOT EXIT EARLY)
+Exit:        TRAIL 30% (or max ${holdDays}d)
 Leverage:    ${leverageGuide}
 Size:        10-20% of allocated capital
 
@@ -80,14 +80,14 @@ EXECUTION ON BOROS
 8. Confirm transaction
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CRITICAL: HOLD FOR ${holdDays} DAYS
+EXIT STRATEGY: TRAIL 30%
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DO NOT exit when z-score reverts!
-The profit comes from ACCUMULATING
-spread over ${holdDays} days, not from
-timing the reversion.
+Exit when EITHER:
+• P&L drops 30% from peak (after 12h)
+• OR max ${holdDays} days reached
 
-Set a calendar reminder for exit date.
+Let winners run, cut giving-back trades.
+Monitor: pnpm run paper:monitor
 
 Time: ${alert.timestamp.toISOString()}
 `.trim();
@@ -288,4 +288,70 @@ export async function sendAlert(config: AlertConfig, alert: TradeAlert): Promise
     sendEmail(config, subject, instructions),
     sendTelegram(config, instructions),
   ]);
+}
+
+/**
+ * Exit notification data
+ */
+export interface ExitNotification {
+  coin: string;
+  direction: 'LONG' | 'SHORT';
+  exitReason: 'TRAILING_STOP' | 'TIME_BASED' | 'STOP_LOSS' | 'MANUAL';
+  entryApr: number;
+  exitApr: number;
+  holdHours: number;
+  peakPnl: number;
+  realizedPnl: number;
+  drawdownFromPeak?: number;
+}
+
+/**
+ * Generate exit notification message
+ */
+function generateExitMessage(exit: ExitNotification): string {
+  const { coin, direction, exitReason, holdHours, peakPnl, realizedPnl, drawdownFromPeak } = exit;
+
+  const holdDays = (holdHours / 24).toFixed(1);
+  const pnlSign = realizedPnl >= 0 ? '+' : '';
+  const resultEmoji = realizedPnl >= 0 ? '✅' : '❌';
+
+  const reasonText = {
+    'TRAILING_STOP': `TRAIL 30% (DD: ${(drawdownFromPeak ?? 0).toFixed(0)}% from peak)`,
+    'TIME_BASED': 'Max hold period reached',
+    'STOP_LOSS': 'Stop loss hit',
+    'MANUAL': 'Manual exit',
+  }[exitReason];
+
+  return `
+${resultEmoji} POSITION CLOSED: ${coin} ${direction}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXIT REASON: ${exitReason}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${reasonText}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESULTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Realized P&L:  ${pnlSign}$${realizedPnl.toFixed(2)}
+Peak P&L:      $${peakPnl.toFixed(2)}
+Hold Duration: ${holdDays} days (${holdHours.toFixed(0)}h)
+
+Time: ${new Date().toISOString()}
+`.trim();
+}
+
+/**
+ * Send exit notification via Telegram
+ */
+export async function sendExitNotification(config: AlertConfig, exit: ExitNotification): Promise<void> {
+  const message = generateExitMessage(exit);
+
+  console.log('\n' + '='.repeat(50));
+  console.log('SENDING EXIT NOTIFICATION');
+  console.log('='.repeat(50));
+  console.log(message);
+  console.log('='.repeat(50));
+
+  await sendTelegram(config, message);
 }

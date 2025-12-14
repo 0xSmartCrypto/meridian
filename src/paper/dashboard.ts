@@ -21,9 +21,11 @@ import {
   loadState,
   getOpenTrades,
   getClosedTrades,
+  updateUnrealizedPnl,
 } from './tracker.js';
 import { calculateDashboardMetrics, loadSnapshots } from './metrics.js';
 import type { PaperTrade, PaperState } from './types.js';
+import { fetchCurrentBorosApr } from '../data/boros.js';
 
 // ============================================================================
 // DISPLAY HELPERS
@@ -101,7 +103,7 @@ function renderAccountSummary(state: PaperState): void {
 function renderOpenPositions(trades: PaperTrade[], state: PaperState): void {
   const openTrades = getOpenTrades(trades, state);
 
-  console.log('\n📈 OPEN POSITIONS');
+  console.log('\n📈 OPEN POSITIONS (Trail 30% Strategy)');
   console.log(LINE);
 
   if (openTrades.length === 0) {
@@ -109,16 +111,16 @@ function renderOpenPositions(trades: PaperTrade[], state: PaperState): void {
     return;
   }
 
-  // Header
+  // Header row 1
   console.log(
     '  ' +
     padRight('COIN', 6) +
     padRight('DIR', 6) +
-    padRight('STRATEGY', 16) +
     padRight('SIZE', 10) +
-    padRight('ENTRY Z', 10) +
-    padRight('UNREAL P&L', 12) +
-    padRight('EXIT IN', 10)
+    padRight('UNREAL P&L', 14) +
+    padRight('PEAK P&L', 12) +
+    padRight('DD FROM PEAK', 14) +
+    'EXIT'
   );
   console.log('  ' + '-'.repeat(68));
 
@@ -127,19 +129,40 @@ function renderOpenPositions(trades: PaperTrade[], state: PaperState): void {
       (new Date(trade.scheduledExitTime).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     );
 
-    const pnlPercent = (trade.unrealizedPnl / trade.notionalSize) * 100;
+    // Handle legacy trades without trailing stop fields
+    const peakPnl = trade.peakUnrealizedPnl ?? Math.max(0, trade.unrealizedPnl);
+
+    // Calculate drawdown from peak
+    const drawdownFromPeak = peakPnl > 0
+      ? ((peakPnl - trade.unrealizedPnl) / peakPnl) * 100
+      : 0;
+
+    // Trailing stop threshold (default 30%)
+    const trailThreshold = (trade.trailingStopPct ?? 0.30) * 100;
+
+    // Color coding: red if approaching trailing stop
+    const ddText = `${drawdownFromPeak.toFixed(0)}% / ${trailThreshold.toFixed(0)}%`;
+    const ddColor = drawdownFromPeak >= trailThreshold * 0.8 ? -1 : 0; // Yellow-ish warning
+
+    // Exit info: either "Xd" for time-based or "TRAIL" if trailing stop close
+    const exitInfo = drawdownFromPeak >= trailThreshold
+      ? '\x1b[31mTRAIL!\x1b[0m'
+      : `${daysToExit.toFixed(1)}d`;
 
     console.log(
       '  ' +
       padRight(trade.coin, 6) +
       padRight(trade.direction, 6) +
-      padRight(trade.strategy, 16) +
       padRight(`$${trade.notionalSize}`, 10) +
-      padRight(`${trade.entryZScore.toFixed(2)}σ`, 10) +
-      padRight(colorize(trade.unrealizedPnl, formatUsd(trade.unrealizedPnl)), 22) + // Extra space for ANSI codes
-      padRight(`${daysToExit.toFixed(1)}d`, 10)
+      padRight(colorize(trade.unrealizedPnl, formatUsd(trade.unrealizedPnl)), 24) +
+      padRight(formatUsd(peakPnl), 12) +
+      padRight(colorize(ddColor, ddText), 24) +
+      exitInfo
     );
   }
+
+  // Legend
+  console.log('\n  Legend: DD FROM PEAK = current / threshold (30% = trailing stop trigger)');
 }
 
 function renderPrimaryMetrics(metrics: ReturnType<typeof calculateDashboardMetrics>): void {
@@ -356,9 +379,16 @@ function renderFooter(): void {
 // MAIN
 // ============================================================================
 
-export function runDashboard(): void {
+export async function runDashboard(): Promise<void> {
   const trades = loadTrades();
   const state = loadState();
+
+  // Update unrealized P&L for all open positions before rendering
+  if (state.openPositions.length > 0) {
+    console.log('Updating unrealized P&L for open positions...');
+    await updateUnrealizedPnl(trades, state, fetchCurrentBorosApr);
+  }
+
   const metrics = calculateDashboardMetrics();
 
   renderHeader();
@@ -373,4 +403,4 @@ export function runDashboard(): void {
 }
 
 // Run if called directly
-runDashboard();
+runDashboard().catch(console.error);

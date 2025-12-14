@@ -64,6 +64,9 @@ export function loadRiskConfig(): RiskConfig {
     maxLeverage: parseFloat(process.env.PAPER_MAX_LEVERAGE || '3'),
     consecutiveLossLimit: parseInt(process.env.PAPER_LOSS_LIMIT || '3'),
     cooldownDays: parseInt(process.env.PAPER_COOLDOWN_DAYS || '14'),
+    // Trail 30% strategy settings
+    trailingStopPct: parseFloat(process.env.PAPER_TRAILING_STOP_PCT || '0.30'),
+    minHoldHours: parseInt(process.env.PAPER_MIN_HOLD_HOURS || '12'),
   };
 }
 
@@ -79,11 +82,32 @@ function ensureDataDir(): void {
 
 /**
  * Load all paper trades from disk
+ * Also migrates legacy trades to include new trailing stop fields
  */
 export function loadTrades(): PaperTrade[] {
   try {
     if (existsSync(TRADES_FILE)) {
-      return JSON.parse(readFileSync(TRADES_FILE, 'utf-8'));
+      const trades: PaperTrade[] = JSON.parse(readFileSync(TRADES_FILE, 'utf-8'));
+
+      // Migrate legacy trades without trailing stop fields
+      let migrated = false;
+      for (const trade of trades) {
+        if (trade.peakUnrealizedPnl === undefined) {
+          trade.peakUnrealizedPnl = Math.max(0, trade.unrealizedPnl);
+          trade.peakPnlHour = 0;
+          trade.trailingStopPct = 0.30; // Default 30%
+          trade.minHoldHours = 12;      // Default 12h
+          migrated = true;
+        }
+      }
+
+      // Save migrated data
+      if (migrated) {
+        writeFileSync(TRADES_FILE, JSON.stringify(trades, null, 2));
+        console.log('📝 Migrated existing trades to Trail 30% strategy');
+      }
+
+      return trades;
     }
   } catch {
     console.error('Error loading trades file, starting fresh');
@@ -304,6 +328,12 @@ export function openTrade(
     realizedPnl: null,
     unrealizedPnl: 0,
     fees: entryFee,
+
+    // Trailing stop data (Trail 30% strategy)
+    peakUnrealizedPnl: 0,
+    peakPnlHour: 0,
+    trailingStopPct: riskConfig.trailingStopPct,
+    minHoldHours: riskConfig.minHoldHours,
   };
 
   // Update state
@@ -320,9 +350,13 @@ export function openTrade(
 /**
  * Calculate P&L for a trade given current market data
  *
+ * On Boros:
+ *   - Fixed rate = entryImpliedApr (the rate you lock in at entry)
+ *   - Floating rate = current funding APR (changes over time)
+ *
  * Formula (hourly accrual):
  *   For each hour in holding period:
- *     hourlyFixed = entryApr / 8760
+ *     hourlyFixed = entryImpliedApr / 8760
  *     hourlyFloating = currentApr / 8760
  *     if SHORT: pnl += (hourlyFixed - hourlyFloating) * notional
  *     if LONG:  pnl += (hourlyFloating - hourlyFixed) * notional
@@ -332,15 +366,16 @@ export function calculatePnl(
   currentApr: number,
   hoursHeld: number
 ): number {
-  const hourlyFixed = trade.entryApr / 8760;
+  // Fixed rate is the IMPLIED APR locked in at entry (not the entry funding rate!)
+  const hourlyFixed = trade.entryImpliedApr / 8760;
   const hourlyFloating = currentApr / 8760;
 
   let pnl = 0;
   if (trade.direction === 'SHORT') {
-    // Receive fixed, pay floating
+    // Receive fixed (implied), pay floating (current funding)
     pnl = (hourlyFixed - hourlyFloating) * trade.notionalSize * hoursHeld;
   } else {
-    // Pay fixed, receive floating
+    // Pay fixed (implied), receive floating (current funding)
     pnl = (hourlyFloating - hourlyFixed) * trade.notionalSize * hoursHeld;
   }
 
@@ -349,6 +384,7 @@ export function calculatePnl(
 
 /**
  * Update unrealized P&L for all open positions
+ * Also tracks peak P&L for trailing stop strategy
  */
 export async function updateUnrealizedPnl(
   trades: PaperTrade[],
@@ -365,6 +401,12 @@ export async function updateUnrealizedPnl(
     const hoursHeld = (Date.now() - entryTime.getTime()) / (1000 * 60 * 60);
 
     trade.unrealizedPnl = calculatePnl(trade, currentApr, hoursHeld);
+
+    // Update peak P&L tracking for trailing stop
+    if (trade.unrealizedPnl > trade.peakUnrealizedPnl) {
+      trade.peakUnrealizedPnl = trade.unrealizedPnl;
+      trade.peakPnlHour = Math.floor(hoursHeld);
+    }
   }
 
   saveTrades(trades);
@@ -379,7 +421,7 @@ export function closeTrade(
   trades: PaperTrade[],
   exitApr: number,
   exitZScore: number,
-  exitReason: 'TIME_BASED' | 'MANUAL' | 'STOP_LOSS'
+  exitReason: 'TIME_BASED' | 'MANUAL' | 'STOP_LOSS' | 'TRAILING_STOP'
 ): void {
   const entryTime = new Date(trade.entryTime);
   const hoursHeld = (Date.now() - entryTime.getTime()) / (1000 * 60 * 60);
@@ -441,6 +483,42 @@ export function getTradesAtStopLoss(
 
     const pnlPercent = t.unrealizedPnl / t.notionalSize;
     return pnlPercent <= riskConfig.stopLossThreshold;
+  });
+}
+
+/**
+ * Check for trades that hit trailing stop (Trail 30% strategy)
+ *
+ * Trailing stop triggers when:
+ * 1. Position has been held for at least minHoldHours
+ * 2. Peak P&L was positive (we had unrealized gains)
+ * 3. Current P&L dropped by trailingStopPct from peak
+ *
+ * Example with 30% trailing stop:
+ * - Peak P&L: $100
+ * - Current P&L: $65 (35% drawdown from peak)
+ * - Result: TRIGGER (35% > 30%)
+ */
+export function getTradesAtTrailingStop(
+  trades: PaperTrade[],
+  state: PaperState
+): PaperTrade[] {
+  return trades.filter(t => {
+    if (!state.openPositions.includes(t.id)) return false;
+
+    // Check minimum hold time
+    const entryTime = new Date(t.entryTime);
+    const hoursHeld = (Date.now() - entryTime.getTime()) / (1000 * 60 * 60);
+    if (hoursHeld < t.minHoldHours) return false;
+
+    // Need to have had some positive P&L first
+    if (t.peakUnrealizedPnl <= 0) return false;
+
+    // Calculate drawdown from peak
+    const drawdownFromPeak = (t.peakUnrealizedPnl - t.unrealizedPnl) / t.peakUnrealizedPnl;
+
+    // Trigger if drawdown exceeds threshold
+    return drawdownFromPeak >= t.trailingStopPct;
   });
 }
 
