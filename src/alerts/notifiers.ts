@@ -33,7 +33,7 @@ function generateMeanReversionInstructions(alert: TradeAlert): string {
   const directionEmoji = direction === 'LONG' ? '🟢' : '🔴';
 
   return `
-${directionEmoji} MEAN REVERSION ALERT: ${direction} ${coin}
+📥 [ENTRY] ${directionEmoji} ${direction} ${coin}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STRATEGY: MEAN REVERSION
@@ -106,7 +106,7 @@ function generateSpreadHarvestInstructions(alert: TradeAlert): string {
   const directionEmoji = direction === 'LONG' ? '🟢' : '🔴';
 
   return `
-${directionEmoji} SPREAD HARVEST ALERT: ${direction} ${coin}
+📥 [ENTRY] ${directionEmoji} ${direction} ${coin}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STRATEGY: SPREAD HARVEST
@@ -323,7 +323,7 @@ function generateExitMessage(exit: ExitNotification): string {
   }[exitReason];
 
   return `
-${resultEmoji} POSITION CLOSED: ${coin} ${direction}
+📤 [EXIT] ${resultEmoji} ${coin} ${direction}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EXIT REASON: ${exitReason}
