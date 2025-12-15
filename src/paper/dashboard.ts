@@ -296,7 +296,7 @@ function renderRecentTrades(trades: PaperTrade[]): void {
   // Header
   console.log(
     '  ' +
-    padRight('DATE', 14) +
+    padRight('DATE', 18) +
     padRight('COIN', 6) +
     padRight('DIR', 6) +
     padRight('HOLD', 6) +
@@ -305,7 +305,7 @@ function renderRecentTrades(trades: PaperTrade[]): void {
     padRight('P&L', 12) +
     'EXIT'
   );
-  console.log('  ' + '-'.repeat(68));
+  console.log('  ' + '-'.repeat(72));
 
   for (const trade of closedTrades) {
     const holdDays = trade.exitTime
@@ -317,7 +317,7 @@ function renderRecentTrades(trades: PaperTrade[]): void {
 
     console.log(
       '  ' +
-      padRight(formatDate(trade.exitTime!), 14) +
+      padRight(formatDate(trade.exitTime!), 18) +
       padRight(trade.coin, 6) +
       padRight(trade.direction, 6) +
       padRight(`${holdDays.toFixed(1)}d`, 6) +

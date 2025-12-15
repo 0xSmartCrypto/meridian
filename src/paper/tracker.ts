@@ -99,6 +99,14 @@ export function loadTrades(): PaperTrade[] {
           trade.minHoldHours = 12;      // Default 12h
           migrated = true;
         }
+        // Migrate legacy trades without implied rate logging fields
+        if (trade.entry7dMA === undefined) {
+          // For old trades, estimate 7dMA as the mean (close enough)
+          trade.entry7dMA = trade.entryApr; // Best guess - no historical data
+          trade.estimatedBlend5050 = (trade.entryApr + trade.entry7dMA) / 2;
+          trade.impliedVsBlendDelta = trade.entryImpliedApr - trade.estimatedBlend5050;
+          migrated = true;
+        }
       }
 
       // Save migrated data
@@ -299,6 +307,10 @@ export function openTrade(
   // Calculate fees (entry side only, exit added at close)
   const entryFee = notionalSize * TAKER_FEE_RATE;
 
+  // Calculate our blend estimate for implied rate comparison
+  const estimatedBlend5050 = (alert.currentApr + alert.meanApr) / 2;
+  const impliedVsBlendDelta = alert.impliedApr - estimatedBlend5050;
+
   const trade: PaperTrade = {
     id: randomUUID(),
     coin: alert.coin,
@@ -310,6 +322,9 @@ export function openTrade(
     entryTime: new Date().toISOString(),
     entryApr: alert.currentApr,
     entryImpliedApr: alert.impliedApr,
+    entry7dMA: alert.meanApr,
+    estimatedBlend5050,
+    impliedVsBlendDelta,
     entryZScore: alert.zScore,
     notionalSize,
     leverage: finalLeverage,
@@ -490,9 +505,10 @@ export function getTradesAtStopLoss(
  * Check for trades that hit trailing stop (Trail 30% strategy)
  *
  * Trailing stop triggers when:
- * 1. Position has been held for at least minHoldHours
- * 2. Peak P&L was positive (we had unrealized gains)
- * 3. Current P&L dropped by trailingStopPct from peak
+ * 1. Strategy is mean_reversion (NOT spread_harvest - needs full hold)
+ * 2. Position has been held for at least minHoldHours
+ * 3. Peak P&L was positive (we had unrealized gains)
+ * 4. Current P&L dropped by trailingStopPct from peak
  *
  * Example with 30% trailing stop:
  * - Peak P&L: $100
@@ -505,6 +521,10 @@ export function getTradesAtTrailingStop(
 ): PaperTrade[] {
   return trades.filter(t => {
     if (!state.openPositions.includes(t.id)) return false;
+
+    // Only apply trailing stop to mean_reversion trades
+    // spread_harvest needs full hold period to capture spread convergence
+    if (t.strategy !== 'mean_reversion') return false;
 
     // Check minimum hold time
     const entryTime = new Date(t.entryTime);

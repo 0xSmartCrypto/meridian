@@ -60,6 +60,7 @@ interface Config {
   takeProfitPct?: number;     // Exit if profit >= X% of notional
   trailingStopPct?: number;   // Exit if drawdown from peak >= X%
   minHoldHours?: number;      // Don't exit before this (avoid whipsaws)
+  requirePositivePnl?: boolean; // Only trigger trailing stop if still in profit
 }
 
 function rollingStats(history: FundingRecord[], index: number, window: number = 168) {
@@ -135,8 +136,12 @@ function runBacktest(data: FundingData, config: Config) {
         shouldExit = true;
         exitReason = `take_profit_${(config.takeProfitPct * 100).toFixed(1)}%`;
       } else if (minHoldMet && config.trailingStopPct && position.peakPnl > 0 && drawdownFromPeak >= config.trailingStopPct) {
-        shouldExit = true;
-        exitReason = `trailing_stop_${(config.trailingStopPct * 100).toFixed(0)}%`;
+        // If requirePositivePnl is set, only trigger trailing stop if still profitable
+        const pnlRequirementMet = !config.requirePositivePnl || currentPnl >= 0;
+        if (pnlRequirementMet) {
+          shouldExit = true;
+          exitReason = `trailing_stop_${(config.trailingStopPct * 100).toFixed(0)}%`;
+        }
       }
 
       if (shouldExit) {
@@ -269,6 +274,9 @@ async function main() {
     // Trailing stops (exit when giving back profits)
     { name: 'Trail 30%', maxHoldHours: 168, trailingStopPct: 0.30, minHoldHours: 12 },
     { name: 'Trail 50%', maxHoldHours: 168, trailingStopPct: 0.50, minHoldHours: 12 },
+
+    // NEW: Trail 30% but only exit if still profitable (protect profits, don't realize losses)
+    { name: 'Trail 30% +ve', maxHoldHours: 168, trailingStopPct: 0.30, minHoldHours: 12, requirePositivePnl: true },
 
     // Combined: Take profit OR trailing stop
     { name: 'TP 1% + Trail 50%', maxHoldHours: 168, takeProfitPct: 0.01, trailingStopPct: 0.50, minHoldHours: 6 },

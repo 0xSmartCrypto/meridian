@@ -62,6 +62,19 @@ export interface PaperTrade {
   /** Implied APR from Boros at entry */
   entryImpliedApr: number;
 
+  /** 7-day MA APR at entry (for blend estimate calculation) */
+  entry7dMA: number;
+
+  /** Our estimated implied rate (50/50 blend of floating + 7dMA) */
+  estimatedBlend5050: number;
+
+  /**
+   * Delta: Actual Boros implied vs our blend estimate
+   * Positive = Boros prices HIGHER than our estimate (good for shorts, bad for longs)
+   * Negative = Boros prices LOWER than our estimate (bad for shorts, good for longs)
+   */
+  impliedVsBlendDelta: number;
+
   /** Z-score at entry (how many std devs from mean) */
   entryZScore: number;
 

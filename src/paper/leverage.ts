@@ -20,30 +20,34 @@ export interface LeverageConfig {
  * Load leverage config from environment
  */
 export function loadLeverageConfig(): LeverageConfig {
-  const strategy = (process.env.PAPER_LEVERAGE_STRATEGY || 'fixed') as LeverageStrategy;
+  const strategy = (process.env.PAPER_LEVERAGE_STRATEGY || 'signal_strength') as LeverageStrategy;
   const validStrategies: LeverageStrategy[] = ['fixed', 'signal_strength', 'profit_stack', 'combined'];
 
   return {
     strategy: validStrategies.includes(strategy) ? strategy : 'fixed',
     fixedLeverage: parseFloat(process.env.PAPER_FIXED_LEVERAGE || '1'),
-    maxLeverage: parseFloat(process.env.PAPER_MAX_LEVERAGE || '6'),
+    maxLeverage: parseFloat(process.env.PAPER_MAX_LEVERAGE || '20'),
   };
 }
 
 /**
  * Signal-strength leverage: bet bigger on stronger signals
  *
+ * AGGRESSIVE (paper testing - liquidation risk is low for funding trades)
+ *
  * | Z-Score     | Leverage |
  * |-------------|----------|
- * | 2.0 - 2.5σ  | 2x       |
- * | 2.5 - 3.0σ  | 4x       |
- * | 3.0σ+       | 6x       |
+ * | 2.0 - 2.5σ  | 5x       |
+ * | 2.5 - 3.0σ  | 10x      |
+ * | 3.0 - 4.0σ  | 15x      |
+ * | 4.0σ+       | 20x      |
  */
 function signalStrengthLeverage(zScore: number): number {
   const absZ = Math.abs(zScore);
-  if (absZ >= 3.0) return 6;
-  if (absZ >= 2.5) return 4;
-  if (absZ >= 2.0) return 2;
+  if (absZ >= 4.0) return 20;
+  if (absZ >= 3.0) return 15;
+  if (absZ >= 2.5) return 10;
+  if (absZ >= 2.0) return 5;
   return 1;
 }
 

@@ -46,7 +46,6 @@ interface Config {
   name: string;
   entryThreshold: number;
   holdHours: number;
-  takerFee: number;
   positionSize: number;
 }
 
@@ -94,7 +93,14 @@ function runBacktest(data: FundingData, config: Config) {
           }
         }
 
-        const fees = config.positionSize * config.takerFee * 2;
+        // Boros fee structure:
+        // - Opening fee: 0.05% × notional × (days to maturity / 365)
+        // - Settlement fee: 0.2% × notional × (days held / 365)
+        // - No closing fee
+        const daysHeld = holdHours / 24;
+        const openingFee = config.positionSize * 0.0005 * (config.holdHours / 24 / 365);
+        const settlementFee = config.positionSize * 0.002 * (daysHeld / 365);
+        const fees = openingFee + settlementFee;
         const netPnl = grossPnl - fees;
 
         trades.push({
@@ -192,7 +198,7 @@ async function main() {
   console.log('\nStrategy: Enter on extreme z-scores, HOLD for full period (time-based exit)');
   console.log('Key insight: Don\'t exit on z-score revert - hold to accumulate spread\n');
   console.log('Assumptions:');
-  console.log('  • Taker fee: 0.05% per trade (0.1% round trip)');
+  console.log('  • Boros fees: Opening 0.05% × (days/365) + Settlement 0.2% × (days/365)');
   console.log('  • Position size: $10,000 notional');
   console.log('  • Starting capital: $10,000');
   console.log('  • Rolling 7-day stats for signal generation');
@@ -201,10 +207,10 @@ async function main() {
   const coins = ['HYPE', 'BTC', 'ETH'];
 
   const configs: Config[] = [
-    { name: '2.5σ / 1 week', entryThreshold: 2.5, holdHours: 168, takerFee: 0.0005, positionSize: 10000 },
-    { name: '2.0σ / 1 week', entryThreshold: 2.0, holdHours: 168, takerFee: 0.0005, positionSize: 10000 },
-    { name: '3.0σ / 1 week', entryThreshold: 3.0, holdHours: 168, takerFee: 0.0005, positionSize: 10000 },
-    { name: '2.5σ / 2 weeks', entryThreshold: 2.5, holdHours: 336, takerFee: 0.0005, positionSize: 10000 },
+    { name: '2.5σ / 1 week', entryThreshold: 2.5, holdHours: 168, positionSize: 10000 },
+    { name: '2.0σ / 1 week', entryThreshold: 2.0, holdHours: 168, positionSize: 10000 },
+    { name: '3.0σ / 1 week', entryThreshold: 3.0, holdHours: 168, positionSize: 10000 },
+    { name: '2.5σ / 2 weeks', entryThreshold: 2.5, holdHours: 336, positionSize: 10000 },
   ];
 
   const allResults: ReturnType<typeof runBacktest>[] = [];

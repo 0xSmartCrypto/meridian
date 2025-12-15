@@ -13,7 +13,7 @@ import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { loadConfig, validateConfig, getZThreshold, getMinSpread, type AlertConfig } from './config.js';
-import { sendAlert, type TradeAlert, type AlertType } from './notifiers.js';
+import { sendAlert, sendTelegram, type TradeAlert, type AlertType } from './notifiers.js';
 import { onAlert as onPaperAlert } from '../paper/hook.js';
 
 const DATA_DIR = join(process.cwd(), 'data');
@@ -336,6 +336,19 @@ async function main() {
   if (continuous) {
     console.log(`\nRunning in continuous mode (checking every ${intervalMinutes} minutes)`);
     console.log('Press Ctrl+C to stop\n');
+
+    // Send startup notification
+    const startupMsg = `🚀 Meridian Monitor Started
+
+Strategy: ${config.strategy.toUpperCase()}
+Coins: ${config.coins.join(', ')}
+Check interval: ${intervalMinutes}m
+
+Thresholds:
+${config.coins.map(c => `  ${c}: z=${getZThreshold(config, c)}σ`).join('\n')}
+
+Time: ${new Date().toISOString()}`;
+    await sendTelegram(config, startupMsg);
 
     await runCheck(config);
     setInterval(async () => {

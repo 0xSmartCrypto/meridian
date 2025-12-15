@@ -96,6 +96,17 @@ pm2 startup                  # Generate startup script
 pm2 save                     # Save current processes
 ```
 
+### Automated Data Refresh
+
+Historical data for z-score calculations is refreshed daily via cron:
+
+```bash
+# Add to crontab (crontab -e)
+0 6 * * * cd /path/to/meridian && pnpm run data:fetch >> logs/data-fetch.log 2>&1
+```
+
+This keeps the 90-day baseline stats current. The monitor sends a Telegram notification on startup to confirm it's running.
+
 ## Strategies
 
 ### Mean Reversion (Recommended)
