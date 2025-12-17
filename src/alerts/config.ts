@@ -75,7 +75,7 @@ export function loadConfig(): AlertConfig {
     strategy = strategyRaw;
   }
 
-  const coins = (process.env.ALERT_COINS || 'HYPE,BTC,ETH').split(',').map(c => c.trim());
+  const coins = (process.env.ALERT_COINS || 'HYPE').split(',').map(c => c.trim());
   const defaultZThreshold = parseFloat(process.env.ALERT_Z_THRESHOLD || '2.5');
   const defaultMinSpread = parseFloat(process.env.ALERT_MIN_SPREAD || '0.05');
 

@@ -52,7 +52,7 @@ Z-Score:             ${zScore.toFixed(2)}σ
 TRADE INSTRUCTIONS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Direction:   ${direction}
-Exit:        TRAIL 30% (or max ${holdDays}d)
+Exit:        Hold ${holdDays} days (time-based)
 Leverage:    ${leverageGuide}
 Size:        10-20% of allocated capital
 
@@ -80,14 +80,12 @@ EXECUTION ON BOROS
 8. Confirm transaction
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXIT STRATEGY: TRAIL 30%
+EXIT STRATEGY: HOLD ${holdDays} DAYS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Exit when EITHER:
-• P&L drops 30% from peak (after 12h)
-• OR max ${holdDays} days reached
+Hold for full ${holdDays} days. Don't exit early.
+Profit accumulates AFTER reversion, not during.
 
-Let winners run, cut giving-back trades.
-Monitor: pnpm run paper:monitor
+Monitor: pnpm run paper:dashboard
 
 Time: ${alert.timestamp.toISOString()}
 `.trim();

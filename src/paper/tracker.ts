@@ -20,6 +20,8 @@ import type {
   PaperState,
   TradeDirection,
   RiskConfig,
+  KillSwitchStatus,
+  KillSwitchConfig,
 } from './types.js';
 import type { TradeAlert } from '../alerts/notifiers.js';
 import { loadLeverageConfig, calculateLeverage, describeLeverage } from './leverage.js';
@@ -33,19 +35,70 @@ const TRADES_FILE = join(DATA_DIR, 'paper-trades.json');
 const STATE_FILE = join(DATA_DIR, 'paper-state.json');
 const SNAPSHOTS_FILE = join(DATA_DIR, 'paper-snapshots.json');
 const ALERTS_LOG_FILE = join(DATA_DIR, 'paper-alerts-log.json');
+const KILLSWITCH_FILE = join(DATA_DIR, 'paper-killswitch.json');
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 /** Default starting capital for paper trading */
-const DEFAULT_STARTING_CAPITAL = 10_000;
+const DEFAULT_STARTING_CAPITAL = 1_000;
 
-/** Default position size (per trade) */
-const DEFAULT_POSITION_SIZE = 1_000;
+/** Default position size (collateral per trade, notional = this × leverage) */
+const DEFAULT_POSITION_SIZE = 1000; // 100% of $1k capital
 
-/** Taker fee rate (round trip) based on Boros */
-const TAKER_FEE_RATE = 0.001; // 0.1% each side = 0.2% round trip
+// ============================================================================
+// BOROS FEE STRUCTURE (from docs.pendle.finance/boros-dev/Mechanics/Fees)
+// ============================================================================
+
+/**
+ * Opening fee: Position Size × 0.05% × Time to Maturity (in years)
+ * - Only charged on taker orders
+ * - Time to maturity is swap maturity, not hold time
+ */
+const OPENING_FEE_RATE = 0.0005; // 0.05%
+
+/**
+ * Settlement fee: Position Size × 0.2% × Settlement Period (in years)
+ * - Charged every 8 hours while position is open
+ * - Rate varies by market, using 0.2% as default
+ */
+const SETTLEMENT_FEE_RATE = 0.002; // 0.2%
+const SETTLEMENT_PERIOD_HOURS = 8;
+
+/**
+ * Market entrance fee: ~$1 one-time per market (negligible, ignored)
+ */
+
+/**
+ * Calculate opening fee for a position
+ * @param notionalSize Position size in USD
+ * @param daysToMaturity Days until swap maturity (default 30 for typical swaps)
+ */
+function calculateOpeningFee(notionalSize: number, daysToMaturity: number = 30): number {
+  const yearsToMaturity = daysToMaturity / 365;
+  return notionalSize * OPENING_FEE_RATE * yearsToMaturity;
+}
+
+/**
+ * Calculate settlement fees for a position
+ * @param notionalSize Position size in USD
+ * @param hoursHeld How long position was held
+ */
+function calculateSettlementFees(notionalSize: number, hoursHeld: number): number {
+  const settlementPeriods = Math.ceil(hoursHeld / SETTLEMENT_PERIOD_HOURS);
+  const yearsPerPeriod = SETTLEMENT_PERIOD_HOURS / 8760;
+  return notionalSize * SETTLEMENT_FEE_RATE * yearsPerPeriod * settlementPeriods;
+}
+
+/**
+ * Calculate total fees for a trade
+ */
+function calculateTotalFees(notionalSize: number, hoursHeld: number, daysToMaturity: number = 30): number {
+  const openingFee = calculateOpeningFee(notionalSize, daysToMaturity);
+  const settlementFees = calculateSettlementFees(notionalSize, hoursHeld);
+  return openingFee + settlementFees;
+}
 
 // ============================================================================
 // RISK CONFIGURATION
@@ -56,16 +109,16 @@ const TAKER_FEE_RATE = 0.001; // 0.1% each side = 0.2% round trip
  */
 export function loadRiskConfig(): RiskConfig {
   return {
-    maxPositionSize: parseFloat(process.env.PAPER_MAX_POSITION_SIZE || '0.20'),
-    maxConcurrentPositions: parseInt(process.env.PAPER_MAX_CONCURRENT || '3'),
-    maxTotalExposure: parseFloat(process.env.PAPER_MAX_EXPOSURE || '0.50'),
+    maxPositionSize: parseFloat(process.env.PAPER_MAX_POSITION_SIZE || '1.0'), // 100% sizing
+    maxConcurrentPositions: parseInt(process.env.PAPER_MAX_CONCURRENT || '1'), // 100% sizing = 1 position
+    maxTotalExposure: parseFloat(process.env.PAPER_MAX_EXPOSURE || '1.0'), // 100% exposure allowed
     stopLossThreshold: parseFloat(process.env.PAPER_STOP_LOSS || '-0.05'),
     maxDrawdown: parseFloat(process.env.PAPER_MAX_DRAWDOWN || '-0.15'),
-    maxLeverage: parseFloat(process.env.PAPER_MAX_LEVERAGE || '3'),
+    maxLeverage: parseFloat(process.env.PAPER_MAX_LEVERAGE || '1.4'), // Boros current max
     consecutiveLossLimit: parseInt(process.env.PAPER_LOSS_LIMIT || '3'),
     cooldownDays: parseInt(process.env.PAPER_COOLDOWN_DAYS || '14'),
-    // Trail 30% strategy settings
-    trailingStopPct: parseFloat(process.env.PAPER_TRAILING_STOP_PCT || '0.30'),
+    // Trailing stop (disabled by default - Hold 7 days is optimal per backtest)
+    trailingStopPct: parseFloat(process.env.PAPER_TRAILING_STOP_PCT || '1.0'),
     minHoldHours: parseInt(process.env.PAPER_MIN_HOLD_HOURS || '12'),
   };
 }
@@ -195,6 +248,23 @@ export function canOpenTrade(
   coin: string,
   riskConfig: RiskConfig
 ): { allowed: boolean; reason?: string } {
+  // Check kill switch status first
+  const killStatus = loadKillSwitchStatus();
+  if (!killStatus.tradingEnabled) {
+    return {
+      allowed: false,
+      reason: `Kill switch triggered: ${killStatus.disabledReason}`,
+    };
+  }
+
+  // Check if this specific coin is disabled
+  if (!isCoinAllowed(coin)) {
+    return {
+      allowed: false,
+      reason: `${coin} disabled by kill switch (underperforming)`,
+    };
+  }
+
   // Check max concurrent positions
   if (state.openPositions.length >= riskConfig.maxConcurrentPositions) {
     return {
@@ -304,8 +374,8 @@ export function openTrade(
   const exitDate = new Date();
   exitDate.setDate(exitDate.getDate() + alert.holdDays);
 
-  // Calculate fees (entry side only, exit added at close)
-  const entryFee = notionalSize * TAKER_FEE_RATE;
+  // Calculate opening fee (Boros: 0.05% × time to maturity)
+  const entryFee = calculateOpeningFee(notionalSize);
 
   // Calculate our blend estimate for implied rate comparison
   const estimatedBlend5050 = (alert.currentApr + alert.meanApr) / 2;
@@ -444,9 +514,9 @@ export function closeTrade(
   // Calculate realized P&L
   const grossPnl = calculatePnl(trade, exitApr, hoursHeld);
 
-  // Add exit fee
-  const exitFee = trade.notionalSize * TAKER_FEE_RATE;
-  trade.fees += exitFee;
+  // Add settlement fees (Boros: 0.2% × position × time, charged every 8h)
+  const settlementFees = calculateSettlementFees(trade.notionalSize, hoursHeld);
+  trade.fees += settlementFees;
 
   // Net P&L
   const netPnl = grossPnl - trade.fees;
@@ -578,4 +648,239 @@ export function getTotalAlerts(): number {
     }
   } catch { /* ignore */ }
   return 0;
+}
+
+// ============================================================================
+// KILL SWITCH SYSTEM
+// ============================================================================
+
+/**
+ * Load kill switch configuration from environment
+ */
+export function loadKillSwitchConfig(): KillSwitchConfig {
+  return {
+    rollingPnlLookback: parseInt(process.env.KILLSWITCH_ROLLING_LOOKBACK || '10'),
+    coinWinRateThreshold: parseFloat(process.env.KILLSWITCH_COIN_WINRATE || '0.60'),
+    coinLookbackTrades: parseInt(process.env.KILLSWITCH_COIN_LOOKBACK || '5'),
+    monthlyReduceThreshold: parseFloat(process.env.KILLSWITCH_MONTHLY_REDUCE || '0.05'),
+    monthlyStopThreshold: parseFloat(process.env.KILLSWITCH_MONTHLY_STOP || '0'),
+    maxDrawdown: parseFloat(process.env.PAPER_MAX_DRAWDOWN || '0.15'),
+  };
+}
+
+/**
+ * Get default kill switch status (all clear)
+ */
+function getDefaultKillSwitchStatus(config: KillSwitchConfig): KillSwitchStatus {
+  return {
+    tradingEnabled: true,
+    disabledReason: null,
+    triggeredAt: null,
+    switches: {
+      rollingPnl: {
+        triggered: false,
+        lastNTradesAvgPnl: 0,
+        threshold: 0,
+        lookbackTrades: config.rollingPnlLookback,
+      },
+      coinPerformance: {
+        triggered: false,
+        disabledCoins: [],
+        threshold: config.coinWinRateThreshold,
+        lookbackTrades: config.coinLookbackTrades,
+      },
+      monthlyPerformance: {
+        triggered: false,
+        last30DaysApy: 0,
+        reduceSize: false,
+        fullStop: false,
+        threshold: config.monthlyStopThreshold,
+      },
+      drawdown: {
+        triggered: false,
+        currentDrawdown: 0,
+        threshold: config.maxDrawdown,
+      },
+    },
+  };
+}
+
+/**
+ * Load kill switch status from disk
+ */
+export function loadKillSwitchStatus(): KillSwitchStatus {
+  const config = loadKillSwitchConfig();
+  try {
+    if (existsSync(KILLSWITCH_FILE)) {
+      return JSON.parse(readFileSync(KILLSWITCH_FILE, 'utf-8'));
+    }
+  } catch { /* ignore */ }
+  return getDefaultKillSwitchStatus(config);
+}
+
+/**
+ * Save kill switch status to disk
+ */
+export function saveKillSwitchStatus(status: KillSwitchStatus): void {
+  ensureDataDir();
+  writeFileSync(KILLSWITCH_FILE, JSON.stringify(status, null, 2));
+}
+
+/**
+ * Check all kill switches and return updated status
+ * Returns { status, alerts } where alerts are messages to send
+ */
+export function checkKillSwitches(
+  trades: PaperTrade[],
+  state: PaperState
+): { status: KillSwitchStatus; alerts: string[] } {
+  const config = loadKillSwitchConfig();
+  const currentStatus = loadKillSwitchStatus();
+  const alerts: string[] = [];
+
+  const closedTrades = trades.filter(t => t.status === 'CLOSED');
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 1. ROLLING P&L CHECK
+  // ─────────────────────────────────────────────────────────────────────────
+  if (closedTrades.length >= config.rollingPnlLookback) {
+    const lastNTrades = closedTrades.slice(-config.rollingPnlLookback);
+    const avgPnl = lastNTrades.reduce((sum, t) => sum + (t.realizedPnl ?? 0), 0) / lastNTrades.length;
+
+    currentStatus.switches.rollingPnl.lastNTradesAvgPnl = avgPnl;
+
+    if (avgPnl < 0 && !currentStatus.switches.rollingPnl.triggered) {
+      currentStatus.switches.rollingPnl.triggered = true;
+      currentStatus.tradingEnabled = false;
+      currentStatus.disabledReason = `Rolling ${config.rollingPnlLookback}-trade avg P&L is negative ($${avgPnl.toFixed(2)})`;
+      currentStatus.triggeredAt = new Date().toISOString();
+
+      alerts.push(`🚨 KILL SWITCH: Rolling P&L
+
+Last ${config.rollingPnlLookback} trades avg: $${avgPnl.toFixed(2)}
+
+Edge may not exist. Trading PAUSED.
+
+To reset: delete data/paper-killswitch.json`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 2. PER-COIN PERFORMANCE CHECK
+  // ─────────────────────────────────────────────────────────────────────────
+  const coins = [...new Set(closedTrades.map(t => t.coin))];
+
+  for (const coin of coins) {
+    const coinTrades = closedTrades.filter(t => t.coin === coin);
+
+    if (coinTrades.length >= config.coinLookbackTrades) {
+      const lastN = coinTrades.slice(-config.coinLookbackTrades);
+      const wins = lastN.filter(t => (t.realizedPnl ?? 0) > 0).length;
+      const winRate = wins / lastN.length;
+
+      if (winRate < config.coinWinRateThreshold) {
+        if (!currentStatus.switches.coinPerformance.disabledCoins.includes(coin)) {
+          currentStatus.switches.coinPerformance.disabledCoins.push(coin);
+          currentStatus.switches.coinPerformance.triggered = true;
+
+          alerts.push(`🚨 KILL SWITCH: ${coin} Underperforming
+
+Win rate: ${(winRate * 100).toFixed(0)}% (last ${config.coinLookbackTrades} trades)
+Threshold: ${(config.coinWinRateThreshold * 100).toFixed(0)}%
+
+${coin} removed from rotation. Other coins continue.`);
+        }
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 3. MONTHLY PERFORMANCE CHECK
+  // ─────────────────────────────────────────────────────────────────────────
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const last30DaysTrades = closedTrades.filter(
+    t => new Date(t.exitTime!).getTime() > thirtyDaysAgo
+  );
+
+  if (last30DaysTrades.length >= 3) { // Need at least 3 trades to evaluate
+    const pnl30Days = last30DaysTrades.reduce((sum, t) => sum + (t.realizedPnl ?? 0), 0);
+    const apy30Days = (pnl30Days / state.startingCapital) * (365 / 30);
+
+    currentStatus.switches.monthlyPerformance.last30DaysApy = apy30Days;
+
+    // Full stop if APY < 0
+    if (apy30Days < config.monthlyStopThreshold && !currentStatus.switches.monthlyPerformance.fullStop) {
+      currentStatus.switches.monthlyPerformance.triggered = true;
+      currentStatus.switches.monthlyPerformance.fullStop = true;
+      currentStatus.tradingEnabled = false;
+      currentStatus.disabledReason = `30-day APY is negative (${(apy30Days * 100).toFixed(1)}%)`;
+      currentStatus.triggeredAt = new Date().toISOString();
+
+      alerts.push(`🚨 KILL SWITCH: Monthly Performance
+
+30-day realized APY: ${(apy30Days * 100).toFixed(1)}%
+30-day P&L: $${pnl30Days.toFixed(2)}
+
+Edge gone. Trading PAUSED.
+
+To reset: delete data/paper-killswitch.json`);
+    }
+    // Reduce size if APY < 5% but > 0
+    else if (apy30Days < config.monthlyReduceThreshold && apy30Days >= 0 && !currentStatus.switches.monthlyPerformance.reduceSize) {
+      currentStatus.switches.monthlyPerformance.reduceSize = true;
+
+      alerts.push(`⚠️ WARNING: Edge Compression
+
+30-day realized APY: ${(apy30Days * 100).toFixed(1)}%
+Threshold: ${(config.monthlyReduceThreshold * 100).toFixed(0)}%
+
+Consider reducing position sizes.`);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 4. DRAWDOWN CHECK (already in canOpenTrade, but track here too)
+  // ─────────────────────────────────────────────────────────────────────────
+  const currentDrawdown = (state.peakEquity - state.currentEquity) / state.peakEquity;
+  currentStatus.switches.drawdown.currentDrawdown = currentDrawdown;
+
+  // Use absolute value since config may be stored as negative (e.g., -0.15)
+  const drawdownThreshold = Math.abs(config.maxDrawdown);
+  if (currentDrawdown >= drawdownThreshold && !currentStatus.switches.drawdown.triggered) {
+    currentStatus.switches.drawdown.triggered = true;
+    currentStatus.tradingEnabled = false;
+    currentStatus.disabledReason = `Max drawdown (${(currentDrawdown * 100).toFixed(1)}%) exceeded`;
+    currentStatus.triggeredAt = new Date().toISOString();
+
+    alerts.push(`🚨 KILL SWITCH: Max Drawdown
+
+Current drawdown: ${(currentDrawdown * 100).toFixed(1)}%
+Threshold: ${(drawdownThreshold * 100).toFixed(0)}%
+
+Circuit breaker triggered. Trading PAUSED.
+
+To reset: delete data/paper-killswitch.json`);
+  }
+
+  // Save updated status
+  saveKillSwitchStatus(currentStatus);
+
+  return { status: currentStatus, alerts };
+}
+
+/**
+ * Check if trading is allowed for a specific coin
+ */
+export function isCoinAllowed(coin: string): boolean {
+  const status = loadKillSwitchStatus();
+  return !status.switches.coinPerformance.disabledCoins.includes(coin);
+}
+
+/**
+ * Reset kill switches (manual intervention)
+ */
+export function resetKillSwitches(): void {
+  const config = loadKillSwitchConfig();
+  saveKillSwitchStatus(getDefaultKillSwitchStatus(config));
+  console.log('Kill switches reset. Trading re-enabled.');
 }

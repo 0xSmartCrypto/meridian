@@ -436,6 +436,100 @@ export interface DashboardMetrics {
 }
 
 // ============================================================================
+// KILL SWITCH TYPES
+// ============================================================================
+
+/**
+ * Kill Switch Status
+ *
+ * Tracks whether any kill switches have been triggered.
+ * When a kill switch triggers, trading is paused until manually reset.
+ */
+export interface KillSwitchStatus {
+  /** Overall: Is trading allowed? */
+  tradingEnabled: boolean;
+
+  /** Reason trading is disabled (if applicable) */
+  disabledReason: string | null;
+
+  /** Timestamp when kill switch was triggered */
+  triggeredAt: string | null;
+
+  /** Individual kill switch states */
+  switches: {
+    /**
+     * ROLLING P&L CHECK
+     * Triggers if last N trades have negative average P&L
+     * Catches: Bad model assumption
+     */
+    rollingPnl: {
+      triggered: boolean;
+      lastNTradesAvgPnl: number;
+      threshold: number; // 0 = must be positive
+      lookbackTrades: number; // default: 10
+    };
+
+    /**
+     * PER-COIN PERFORMANCE
+     * Triggers if a specific coin's win rate drops below threshold
+     * Catches: Single coin regime change (e.g., HYPE stops working)
+     */
+    coinPerformance: {
+      triggered: boolean;
+      disabledCoins: string[];
+      threshold: number; // default: 0.60 (60% win rate)
+      lookbackTrades: number; // default: 5
+    };
+
+    /**
+     * MONTHLY PERFORMANCE REVIEW
+     * Triggers if 30-day realized APY drops below threshold
+     * Catches: Gradual edge decay
+     */
+    monthlyPerformance: {
+      triggered: boolean;
+      last30DaysApy: number;
+      reduceSize: boolean; // true if APY < 5% (reduce size)
+      fullStop: boolean; // true if APY < 0% (stop trading)
+      threshold: number; // default: 0 (must be positive)
+    };
+
+    /**
+     * DRAWDOWN CIRCUIT BREAKER (existing)
+     * Already implemented in canOpenTrade
+     */
+    drawdown: {
+      triggered: boolean;
+      currentDrawdown: number;
+      threshold: number; // default: 0.15 (15%)
+    };
+  };
+}
+
+/**
+ * Kill Switch Configuration
+ */
+export interface KillSwitchConfig {
+  /** Rolling P&L: number of trades to look back */
+  rollingPnlLookback: number;
+
+  /** Per-coin: minimum win rate before disabling coin */
+  coinWinRateThreshold: number;
+
+  /** Per-coin: number of trades to evaluate */
+  coinLookbackTrades: number;
+
+  /** Monthly: APY threshold for reducing size */
+  monthlyReduceThreshold: number;
+
+  /** Monthly: APY threshold for full stop */
+  monthlyStopThreshold: number;
+
+  /** Drawdown: max drawdown before stopping */
+  maxDrawdown: number;
+}
+
+// ============================================================================
 // DAILY SNAPSHOT TYPE
 // ============================================================================
 

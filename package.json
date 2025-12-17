@@ -24,7 +24,8 @@
     "paper:status": "tsx src/paper/cli.ts status",
     "paper:process": "tsx src/paper/cli.ts process",
     "paper:close": "tsx src/paper/cli.ts close",
-    "paper:snapshot": "tsx src/paper/cli.ts snapshot",
+    "paper:snapshot": "tsx src/paper/snapshot.ts",
+    "paper:history": "tsx src/paper/snapshot.ts --history",
     "paper:reset": "tsx src/paper/cli.ts reset",
     "paper:export": "tsx src/paper/cli.ts export",
     "paper:open": "tsx src/paper/hook.ts open",
@@ -51,5 +52,6 @@
   "dependencies": {
     "dotenv": "^17.2.3",
     "zod": "^4.1.13"
-  }
+  },
+  "packageManager": "pnpm@10.12.1+sha512.f0dda8580f0ee9481c5c79a1d927b9164f2c478e90992ad268bbb2465a736984391d6333d2c327913578b2804af33474ca554ba29c04a8b13060a717675ae3ac"
 }

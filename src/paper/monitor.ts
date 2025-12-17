@@ -23,9 +23,11 @@ import {
   closeTrade,
   saveTrades,
   saveState,
+  checkKillSwitches,
+  loadKillSwitchStatus,
 } from './tracker.js';
 import { fetchCurrentBorosApr, fetchCurrentHyperliquidApr } from '../data/boros.js';
-import { sendExitNotification, type ExitNotification } from '../alerts/notifiers.js';
+import { sendExitNotification, sendTelegram, type ExitNotification } from '../alerts/notifiers.js';
 import { loadConfig } from '../alerts/config.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -92,7 +94,7 @@ export async function runMonitor(): Promise<{
   }
 
   console.log(`\n📊 Monitoring ${openCount} open position(s)...`);
-  console.log(`   Strategy: Trail ${(riskConfig.trailingStopPct * 100).toFixed(0)}% (min hold: ${riskConfig.minHoldHours}h)`);
+  console.log(`   Strategy: Hold ${riskConfig.minHoldHours}h min, 7 days max`);
 
   // Update unrealized P&L for all open positions
   await updateUnrealizedPnl(trades, state, fetchCurrentApr);
@@ -208,6 +210,26 @@ export async function runMonitor(): Promise<{
   saveTrades(trades);
   saveState(state);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // KILL SWITCH CHECK
+  // ═══════════════════════════════════════════════════════════════════════════
+  const { status: killStatus, alerts: killAlerts } = checkKillSwitches(trades, state);
+
+  // Send Telegram alerts for any kill switch triggers
+  for (const alert of killAlerts) {
+    console.log(`\n🚨 KILL SWITCH ALERT:\n${alert}`);
+    await sendTelegram(alertConfig, alert);
+  }
+
+  // Show kill switch status
+  if (!killStatus.tradingEnabled) {
+    console.log(`\n⛔ TRADING PAUSED: ${killStatus.disabledReason}`);
+  } else if (killStatus.switches.coinPerformance.disabledCoins.length > 0) {
+    console.log(`\n⚠️  Disabled coins: ${killStatus.switches.coinPerformance.disabledCoins.join(', ')}`);
+  } else if (killStatus.switches.monthlyPerformance.reduceSize) {
+    console.log(`\n⚠️  Warning: Edge compression detected. Consider reducing size.`);
+  }
+
   // Summary
   const totalExits = trailingStopExits + timeBasedExits + stopLossExits;
   if (totalExits > 0) {
@@ -250,7 +272,7 @@ async function runWatchMode(): Promise<void> {
 
   console.log('═'.repeat(70));
   console.log('  MERIDIAN POSITION MONITOR - WATCH MODE');
-  console.log('  Strategy: Trail 30% (exit when P&L drops 30% from peak)');
+  console.log('  Strategy: Hold 7 days (time-based exit)');
   console.log('  Interval: Every hour');
   console.log('═'.repeat(70));
 

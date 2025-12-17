@@ -12,16 +12,27 @@ Funding rate mean reversion trading system for Boros (Pendle's funding rate plat
 | 4. Paper Trade | Ongoing |
 | 5. Live | Not started |
 
-## Backtest Results (Preliminary - 90 days)
+## Backtest Results (90 days, $10k notional)
 
-| Strategy | Best Config | 90-Day Return | Win Rate |
-|----------|-------------|---------------|----------|
-| **Mean Reversion** | HYPE 2.5σ, 7d hold | **+$904 (9%)** | 89% (8/9) |
-| Spread Harvest | HYPE 5% spread, 14d | +$135 (1.4%) | 75% |
+### Realistic vs Optimistic Returns
 
-*Based on $10k notional. Results are preliminary - more data needed for statistical significance.*
+| Implied Rate Model | 90-Day PnL | Annualized APY | Notes |
+|-------------------|------------|----------------|-------|
+| Floating (optimistic) | $1,214 | 49% | If Boros implied = floating |
+| **Blend 50/50 (realistic)** | **$551** | **22%** | Best estimate |
+| 7d MA (pessimistic) | -$183 | -7% | If fully priced in |
 
-**Key insight:** Hold positions for 7-14 days. Don't exit early when signals revert.
+**Key insight:** Original backtest assumed we lock in floating rate. In reality, Boros implied rate already prices in some reversion. Realistic expectation: ~22% APY.
+
+### Per-Coin Performance (Realistic Model)
+
+| Asset | Z Threshold | 90-Day PnL | Trades | Win Rate |
+|-------|-------------|------------|--------|----------|
+| HYPE | 2.5σ | +$396 | 10 | 90% |
+| ETH | 1.8σ | +$105 | 8 | 88% |
+| BTC | 2.2σ | +$51 | 9 | 78% |
+
+**Hold for 7 days.** Reversion happens fast (2-6h) but profit accumulates AFTER.
 
 ## Quick Start
 
@@ -45,12 +56,11 @@ cp .env.example .env
 ### Configure Strategy
 
 ```env
-# Strategy: mean_reversion | spread_harvest | both
-ALERT_STRATEGY=both
+# Strategy: mean_reversion (recommended) | spread_harvest | both
+ALERT_STRATEGY=mean_reversion
 
-# Hold periods
+# Hold period (7 days - don't exit early)
 ALERT_HOLD_DAYS=7
-ALERT_SPREAD_HOLD_DAYS=14
 
 # Default thresholds
 ALERT_Z_THRESHOLD=2.2
@@ -127,16 +137,11 @@ Enter when funding deviates significantly from historical mean.
 
 **Hold for 7 days.** Don't exit when z-score reverts - profit comes from accumulating spread over time.
 
-### Spread Harvest
+### Spread Harvest (Paused)
 
-Enter when Boros implied rate diverges from underlying.
+> **Note:** Spread harvest is paused during paper trading. Mean reversion shows 6.7x better returns. May revisit later.
 
-| Signal | Condition | Action |
-|--------|-----------|--------|
-| SHORT | Implied >> Underlying | Receive high fixed, pay low floating |
-| LONG | Implied << Underlying | Pay low fixed, receive high floating |
-
-**Hold for 14 days** (or to expiry).
+Enter when Boros implied rate diverges from underlying. Hold 14 days.
 
 ## How Boros Works
 
@@ -154,12 +159,17 @@ src/
     analyze.ts        # Stats and signal analysis
   backtest/
     run.ts            # Mean reversion backtest
+    sensitivity.ts    # Implied rate model testing
     spread-harvest.ts # Spread harvest backtest
-    optimize.ts       # Parameter optimization
   alerts/
     monitor.ts        # Rate monitoring + alerts
     notifiers.ts      # Telegram + email
     config.ts         # Configuration
+  paper/
+    tracker.ts        # Trade lifecycle management
+    monitor.ts        # Position monitoring (exit checks)
+    dashboard.ts      # Full metrics display
+    cli.ts            # CLI commands
 ```
 
 ## Commands
@@ -175,18 +185,21 @@ src/
 | `pnpm run alerts:start` | Start PM2 daemon (production) |
 | `pnpm run alerts:stop` | Stop PM2 daemon |
 | `pnpm run alerts:logs` | View PM2 logs |
+| `pnpm run paper:dashboard` | Full paper trading metrics |
+| `pnpm run paper:status` | Quick position check |
+| `pnpm run paper:monitor` | Check positions for exits |
 
-## Performance by Asset (Preliminary)
+## Leverage Tiering
 
-From 90-day backtest with optimized per-coin thresholds, 7-day hold, $10k notional:
+From sensitivity analysis - when to use leverage:
 
-| Asset | Z Threshold | 90-Day PnL | Trades | Win Rate |
-|-------|-------------|------------|--------|----------|
-| HYPE | 2.5σ | +$904 | 9 | 89% |
-| ETH | 1.8σ | +$149 | 8 | 100% |
-| BTC | 2.2σ | +$104 | 9 | 89% |
+| Z-Score Range | Win Rate | Recommended Leverage |
+|---------------|----------|---------------------|
+| 2.0 - 2.5σ | 86% | 1x |
+| 2.5 - 4.0σ | 100% | 2x (sweet spot) |
+| 4.0σ+ | 80% | 1x |
 
-HYPE shows strongest mean reversion behavior. *More data needed for statistical significance.*
+With 2x leverage on z 2.5-4.0: +53% more PnL ($844 vs $551 in backtest).
 
 ## Risk Notes
 

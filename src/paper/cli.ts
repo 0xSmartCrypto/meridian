@@ -229,9 +229,9 @@ export function snapshotCommand(): void {
 // ============================================================================
 
 export function resetCommand(): void {
-  const confirm = process.argv[3];
+  const hasConfirm = process.argv.includes('--confirm');
 
-  if (confirm !== '--confirm') {
+  if (!hasConfirm) {
     console.log('\n⚠️  This will delete all paper trading data!\n');
     console.log('To confirm: pnpm run paper:reset --confirm\n');
     return;
@@ -242,6 +242,7 @@ export function resetCommand(): void {
     'paper-state.json',
     'paper-snapshots.json',
     'paper-alerts-log.json',
+    'paper-killswitch.json',
   ];
 
   for (const file of files) {
