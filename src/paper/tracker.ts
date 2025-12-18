@@ -117,8 +117,10 @@ export function loadRiskConfig(): RiskConfig {
     maxLeverage: parseFloat(process.env.PAPER_MAX_LEVERAGE || '1.4'), // Boros current max
     consecutiveLossLimit: parseInt(process.env.PAPER_LOSS_LIMIT || '3'),
     cooldownDays: parseInt(process.env.PAPER_COOLDOWN_DAYS || '14'),
-    // Trailing stop (disabled by default - Hold 7 days is optimal per backtest)
-    trailingStopPct: parseFloat(process.env.PAPER_TRAILING_STOP_PCT || '1.0'),
+    // Trailing stop (DISABLED by default - Hold 7 days is optimal per backtest)
+    // Set to 0 to disable, or a value like 0.30 for 30% trailing stop
+    trailingStopEnabled: process.env.PAPER_TRAILING_STOP_ENABLED === 'true',
+    trailingStopPct: parseFloat(process.env.PAPER_TRAILING_STOP_PCT || '0.30'),
     minHoldHours: parseInt(process.env.PAPER_MIN_HOLD_HOURS || '12'),
   };
 }
@@ -574,11 +576,16 @@ export function getTradesAtStopLoss(
 /**
  * Check for trades that hit trailing stop (Trail 30% strategy)
  *
- * Trailing stop triggers when:
- * 1. Strategy is mean_reversion (NOT spread_harvest - needs full hold)
- * 2. Position has been held for at least minHoldHours
- * 3. Peak P&L was positive (we had unrealized gains)
- * 4. Current P&L dropped by trailingStopPct from peak
+ * NOTE: Trailing stop is DISABLED by default. Backtest showed Hold 7 days
+ * consistently outperforms early exits because profit accumulates AFTER
+ * z-score reverts, not during reversion.
+ *
+ * When enabled, trailing stop triggers when:
+ * 1. trailingStopEnabled is true in riskConfig
+ * 2. Strategy is mean_reversion (NOT spread_harvest - needs full hold)
+ * 3. Position has been held for at least minHoldHours
+ * 4. Peak P&L was positive (we had unrealized gains)
+ * 5. Current P&L dropped by trailingStopPct from peak
  *
  * Example with 30% trailing stop:
  * - Peak P&L: $100
@@ -587,8 +594,14 @@ export function getTradesAtStopLoss(
  */
 export function getTradesAtTrailingStop(
   trades: PaperTrade[],
-  state: PaperState
+  state: PaperState,
+  riskConfig: RiskConfig
 ): PaperTrade[] {
+  // Trailing stop disabled by default - Hold 7 days is optimal
+  if (!riskConfig.trailingStopEnabled) {
+    return [];
+  }
+
   return trades.filter(t => {
     if (!state.openPositions.includes(t.id)) return false;
 

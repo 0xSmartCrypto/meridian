@@ -103,8 +103,8 @@ export async function runMonitor(): Promise<{
   let timeBasedExits = 0;
   let stopLossExits = 0;
 
-  // 1. Check for trailing stop exits (Trail 30% strategy)
-  const trailingStopTrades = getTradesAtTrailingStop(trades, state);
+  // 1. Check for trailing stop exits (disabled by default - Hold 7 days is optimal)
+  const trailingStopTrades = getTradesAtTrailingStop(trades, state, riskConfig);
   for (const trade of trailingStopTrades) {
     const currentApr = await fetchCurrentApr(trade.coin);
     if (currentApr === null) continue;

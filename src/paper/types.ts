@@ -218,8 +218,11 @@ export interface RiskConfig {
   cooldownDays: number;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // TRAILING STOP SETTINGS (Trail 30% Strategy)
+  // TRAILING STOP SETTINGS (DISABLED by default - Hold 7 days is optimal)
   // ─────────────────────────────────────────────────────────────────────────
+
+  /** Whether trailing stop is enabled (default: false - Hold 7 days beats early exit) */
+  trailingStopEnabled: boolean;
 
   /** Trailing stop percentage - exit when P&L drops this much from peak (default: 0.30 = 30%) */
   trailingStopPct: number;
