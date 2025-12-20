@@ -44,12 +44,7 @@ function formatUsd(value: number): string {
 }
 
 function formatDate(isoString: string): string {
-  return new Date(isoString).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return new Date(isoString).toISOString().replace('T', ' ').slice(0, 16) + 'Z';
 }
 
 function padRight(str: string, len: number): string {
@@ -153,7 +148,7 @@ function renderOpenPositions(trades: PaperTrade[], state: PaperState): void {
       '  ' +
       padRight(trade.coin, 6) +
       padRight(trade.direction, 6) +
-      padRight(`$${trade.notionalSize}`, 10) +
+      padRight(`$${trade.notionalSize.toFixed(0)}`, 10) +
       padRight(colorize(trade.unrealizedPnl, formatUsd(trade.unrealizedPnl)), 24) +
       padRight(formatUsd(peakPnl), 12) +
       padRight(colorize(ddColor, ddText), 24) +
